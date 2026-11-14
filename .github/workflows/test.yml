@@ -42,6 +42,7 @@ jobs:
         id: node
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
       - name: Use Node.js ${{ steps.node.outputs.node-version }}
         run: npm install
       - run: npm run-script prettify-check
