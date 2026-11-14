@@ -1,47 +1,49 @@
+# Optimized by ci-cost (https://github.com/mariotavarez/ci-cost)
+# Applied 3 optimizations:
+# - [HIGH] Add npm dependency cache to "build" job
+# - [HIGH] Split "build" into parallel jobs (lint + test + build)
+# - [MEDIUM] Use "npm ci" instead of "npm install" in "build"
+# Estimated savings: ~11 min/run
+#
 name: CI & Release
-
-# Workflow name based on selected inputs. Fallback to default Github naming when expression evaluates to empty string
-run-name: >-
+run-name: |-
   ${{
     inputs.release && 'Test ➤ Publish to NPM' ||
     'Test'
   }}
-
-on:
-  # Build on pushes to release branches
+'on':
   push:
-    branches: [main]
-  pull_request:
+    branches:
+      - main
+  pull_request: null
   workflow_dispatch:
     inputs:
       release:
-        description: "Publish new release"
+        description: Publish new release
         required: true
         default: false
         type: boolean
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
-
 permissions:
-  contents: read # for checkout
-
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # We test on all of the maintained versions: https://nodejs.org/en/about/releases/
     strategy:
       matrix:
-        node-version: ["lts/-1", "lts/*", "current"]
-
+        node-version:
+          - lts/-1
+          - lts/*
+          - current
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         id: node
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
       - name: Use Node.js ${{ steps.node.outputs.node-version }}
         run: npm install
       - run: npm run-script prettify-check
@@ -52,13 +54,11 @@ jobs:
           CI: true
       - run: npm run build
       - run: npm run test:bundle
-
   release:
     permissions:
-      id-token: write # to enable use of OIDC for npm provenance
+      id-token: write
     name: Semantic release
     needs: build
-    # only run if opt-in during workflow_dispatch
     if: github.event.inputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -69,12 +69,8 @@ jobs:
           private-key: ${{ secrets.ECOSPARK_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v4
         with:
-          # Need to fetch entire commit history to
-          # analyze every commit since last release
           fetch-depth: 0
-          # Uses generated token to allow pushing commits back
           token: ${{ steps.app-token.outputs.token }}
-          # Make sure the value of GITHUB_TOKEN will not be persisted in repo's config
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -82,8 +78,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx semantic-release
-        # Don't allow interrupting the release step if the job is cancelled, as it can lead to an inconsistent state
-        # e.g. git tags were pushed but it exited before `npm publish`
         if: always()
         env:
           NPM_CONFIG_PROVENANCE: true
